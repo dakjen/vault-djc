@@ -1,0 +1,8 @@
+{
+  "name": "meeting-vault",
+  "private": true,
+  "dependencies": {
+    "@neondatabase/serverless": "^0.10.4",
+    "@vercel/blob": "^2.3.3"
+  }
+}

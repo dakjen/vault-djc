@@ -86,10 +86,32 @@ input,textarea,select{font-family:inherit}
 .fi:focus{border-color:var(--rose)}
 .modal-footer{display:flex;justify-content:flex-end;gap:9px;margin-top:6px}
 .swatch{width:24px;height:24px;border-radius:50%;cursor:pointer;border:2.5px solid transparent;flex-shrink:0}
+.login-wrap{display:flex;align-items:center;justify-content:center;min-height:100vh;background:var(--navy)}
+.login-box{background:#fff;border-radius:14px;padding:36px 32px;width:340px;max-width:90%;text-align:center;box-shadow:0 12px 40px rgba(0,0,0,0.25)}
+.login-box h1{font-size:18px;color:var(--navy);margin-bottom:4px}
+.login-box p{font-size:12px;color:var(--gray3);margin-bottom:22px}
+.login-box .fi{text-align:center;font-size:15px;letter-spacing:0.1em}
+.login-err{color:var(--rose-dark);font-size:12px;margin-bottom:10px;min-height:16px}
 </style>
 </head>
 <body>
-<div class="app" id="app">
+
+<div id="loginScreen" class="login-wrap" style="display:none">
+  <div class="login-box">
+    <div style="margin-bottom:18px">
+      <div class="logo-icon" style="margin:0 auto 10px;width:44px;height:44px;border-radius:12px">
+        <svg width="20" height="20" viewBox="0 0 16 16" fill="none"><rect x="1" y="2.5" width="14" height="11" rx="2.5" stroke="white" strokeWidth="1.4"/><path d="M4 7h8M4 9.5h6" stroke="white" strokeWidth="1.3" strokeLinecap="round"/></svg>
+      </div>
+    </div>
+    <h1>Meeting Vault</h1>
+    <p>DakJen Creative</p>
+    <div class="login-err" id="loginErr"></div>
+    <input class="fi" id="loginPw" type="password" placeholder="Enter password" autocomplete="current-password">
+    <button class="btn primary" style="width:100%;margin-top:4px" onclick="doLogin()">Unlock</button>
+  </div>
+</div>
+
+<div class="app" id="app" style="display:none">
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="logo">
@@ -104,36 +126,83 @@ input,textarea,select{font-family:inherit}
       <button class="btn-new" onclick="showModal('newMeeting')">+ New Meeting</button>
     </div>
     <div class="meeting-list" id="meetingList"></div>
-    <div class="sidebar-foot">dakjencreative.com · saved locally</div>
+    <div class="sidebar-foot">dakjencreative.com</div>
   </div>
   <div class="main" id="mainPane"></div>
 </div>
 
 <script>
-const SK='mvault3_v1';
 const COLORS=['#C0737A','#1B2A4A','#4a7c6b','#8b6b1a','#6b3d8b','#2d5888'];
-let state={meetings:[],active:null};
+let meetings=[];
+let activeId=null;
 let selColor=COLORS[0];
+let token=sessionStorage.getItem('vault_token')||'';
 
-function load(){try{const r=localStorage.getItem(SK);if(r)state=JSON.parse(r);}catch(e){}}
-function save(){try{localStorage.setItem(SK,JSON.stringify(state));}catch(e){}}
 function gid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,5);}
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function safeUrl(u){try{const p=new URL(u,location.href);return/^https?:$/.test(p.protocol)?p.href:'';}catch(e){return'';}}
 function fmtFriendly(iso){if(!iso)return'';try{const d=new Date(iso+'T12:00:00');return d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'});}catch(e){return'';}}
-function getMeeting(){return state.meetings.find(m=>m.id===state.active);}
+function getMeeting(){return meetings.find(m=>m.id===activeId);}
 
-function render(){save();renderSidebar();renderMain();}
+async function api(path,opts={}){
+  const headers={'Authorization':'Bearer '+token,...(opts.headers||{})};
+  if(opts.body&&typeof opts.body==='object'&&!(opts.body instanceof ReadableStream)&&!(opts.body instanceof Blob)){
+    headers['Content-Type']='application/json';
+    opts.body=JSON.stringify(opts.body);
+  }
+  const r=await fetch('/api/'+path,{...opts,headers});
+  if(r.status===401){sessionStorage.removeItem('vault_token');token='';showLogin();throw new Error('Unauthorized');}
+  return r.json();
+}
+
+function showLogin(){
+  document.getElementById('loginScreen').style.display='';
+  document.getElementById('app').style.display='none';
+  document.getElementById('loginPw').value='';
+  document.getElementById('loginErr').textContent='';
+  setTimeout(()=>document.getElementById('loginPw').focus(),60);
+}
+
+function showApp(){
+  document.getElementById('loginScreen').style.display='none';
+  document.getElementById('app').style.display='';
+}
+
+async function doLogin(){
+  const pw=document.getElementById('loginPw').value;
+  if(!pw)return;
+  try{
+    const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pw})});
+    const data=await r.json();
+    if(!r.ok){document.getElementById('loginErr').textContent=data.error||'Invalid password';return;}
+    token=data.token;
+    sessionStorage.setItem('vault_token',token);
+    showApp();
+    await initApp();
+  }catch(e){document.getElementById('loginErr').textContent='Connection error';}
+}
+
+document.getElementById('loginPw').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin();});
+
+async function initApp(){
+  try{
+    await api('setup',{method:'POST'});
+    meetings=await api('meetings');
+    render();
+  }catch(e){console.error(e);}
+}
+
+function render(){renderSidebar();renderMain();}
 
 function renderSidebar(){
   const el=document.getElementById('meetingList');
-  if(!state.meetings.length){
+  if(!meetings.length){
     el.innerHTML='<div style="padding:22px 12px;text-align:center;font-size:12px;color:rgba(255,255,255,0.28)">No meetings yet.</div>';
     return;
   }
-  el.innerHTML=state.meetings.map(m=>{
+  el.innerHTML=meetings.map(m=>{
     const nc=(m.notes||[]).length, dc=(m.docs||[]).length;
-    return`<button class="meeting-item${m.id===state.active?' active':''}" onclick="selectMeeting('${m.id}')">
+    return`<button class="meeting-item${m.id===activeId?' active':''}" onclick="selectMeeting('${esc(m.id)}')">
       <div class="meeting-dot" style="background:${m.color||'#C0737A'}"></div>
       <div style="flex:1;min-width:0">
         <div class="meeting-name">${esc(m.name)}</div>
@@ -164,7 +233,7 @@ function renderMain(){
         <span class="meeting-title">${esc(m.name)}</span>
         ${m.cadence?`<span class="badge">${esc(m.cadence)}</span>`:''}
         <div class="header-btns">
-          <button class="btn danger sm" onclick="deleteMeeting('${m.id}')">Delete</button>
+          <button class="btn danger sm" onclick="deleteMeeting('${esc(m.id)}')">Delete</button>
         </div>
       </div>
       ${m.attendees&&m.attendees.length?`<div style="font-size:12px;color:var(--gray3);margin-top:5px;margin-left:21px">${m.attendees.map(a=>esc(a)).join(' · ')}</div>`:''}
@@ -175,7 +244,7 @@ function renderMain(){
       <div class="section-row">
         <span class="section-title">Standing documents</span>
       </div>
-      <div class="section-note">Links and files needed at every meeting — always at the top.</div>
+      <div class="section-note">Links and files needed at every meeting.</div>
 
       <div id="docsArea">
         ${!docs.length?'<div style="font-size:13px;color:var(--gray3);margin-bottom:12px">No documents added yet.</div>':''}
@@ -203,93 +272,109 @@ function renderMain(){
 
 function renderDoc(d){
   const isFile=d.type==='file';
-  return`<div class="doc-row" id="doc_${d.id}">
+  const href=isFile?esc(safeUrl(d.url)||'#'):esc(safeUrl(d.url)||'#');
+  return`<div class="doc-row" id="doc_${esc(d.id)}">
     ${isFile
       ?`<svg width="15" height="15" viewBox="0 0 15 15" fill="none" style="flex-shrink:0"><path d="M8.5 1H4a1 1 0 00-1 1v11a1 1 0 001 1h7a1 1 0 001-1V5.5L8.5 1z" stroke="#1B2A4A" strokeWidth="1.2" strokeLinejoin="round"/><path d="M8.5 1v4.5H13" stroke="#1B2A4A" strokeWidth="1.2" strokeLinecap="round"/></svg>`
       :`<svg width="15" height="15" viewBox="0 0 15 15" fill="none" style="flex-shrink:0"><path d="M6.5 4H4a1 1 0 00-1 1v6a1 1 0 001 1h6a1 1 0 001-1V8.5" stroke="#aaa" strokeWidth="1.2" strokeLinecap="round"/><path d="M9.5 2h3v3M12.5 2L8 6.5" stroke="#1B2A4A" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>`
     }
-    ${isFile
-      ?`<a href="${esc(d.data)}" download="${esc(d.label)}" class="doc-name">${esc(d.label)}</a>`
-      :`<a href="${esc(safeUrl(d.url))}" target="_blank" rel="noopener noreferrer" class="doc-name">${esc(d.label||d.url)}</a>`
-    }
+    <a href="${href}" target="_blank" rel="noopener noreferrer" class="doc-name">${esc(d.label||d.url)}</a>
     <span class="doc-badge">${isFile?'file':'link'}</span>
-    <button class="del-btn" onclick="deleteDoc('${d.id}')">×</button>
+    <button class="del-btn" onclick="deleteDoc('${esc(d.id)}')">×</button>
   </div>`;
 }
 
 function renderNote(n){
-  return`<div class="note-card" id="note_${n.id}">
+  return`<div class="note-card" id="note_${esc(n.id)}">
     <div class="note-header">
-      <input class="note-date-input" type="date" value="${esc(n.date||'')}" onchange="updateNoteDate('${n.id}',this.value)" title="Change date">
+      <input class="note-date-input" type="date" value="${esc(n.date||'')}" onchange="updateNoteDate('${esc(n.id)}',this.value)" title="Change date">
       <span class="note-friendly">${n.date?fmtFriendly(n.date):''}</span>
-      <button class="del-btn" style="margin-left:auto" onclick="deleteNote('${n.id}')">×</button>
+      <button class="del-btn" style="margin-left:auto" onclick="deleteNote('${esc(n.id)}')">×</button>
     </div>
     <div class="note-body">
-      <textarea class="note-textarea" placeholder="Write your notes here…" onchange="updateNoteText('${n.id}',this.value)">${esc(n.text||'')}</textarea>
+      <textarea class="note-textarea" placeholder="Write your notes here…" oninput="updateNoteText('${esc(n.id)}',this.value)">${esc(n.text||'')}</textarea>
     </div>
   </div>`;
 }
 
-function selectMeeting(id){state.active=id;render();}
+function selectMeeting(id){activeId=id;render();}
 
-function deleteMeeting(id){
+async function deleteMeeting(id){
   if(!confirm('Delete this meeting and all its data?'))return;
-  state.meetings=state.meetings.filter(m=>m.id!==id);
-  if(state.active===id)state.active=null;
+  await api('meetings?id='+encodeURIComponent(id),{method:'DELETE'});
+  meetings=meetings.filter(m=>m.id!==id);
+  if(activeId===id)activeId=null;
   render();
 }
 
-function addNote(){
+async function addNote(){
   const m=getMeeting();if(!m)return;
   const today=new Date().toISOString().slice(0,10);
+  const n={id:gid(),date:today,text:'',created_at:new Date().toISOString()};
+  await api('notes',{method:'POST',body:{id:n.id,meeting_id:m.id,date:n.date,text:''}});
   m.notes=m.notes||[];
-  m.notes.unshift({id:gid(),date:today,text:'',created:new Date().toISOString()});
+  m.notes.unshift(n);
   render();
   setTimeout(()=>{const ta=document.querySelector('.note-textarea');if(ta)ta.focus();},60);
 }
 
-function updateNoteDate(nid,val){
-  const m=getMeeting();if(!m)return;
-  const n=(m.notes||[]).find(x=>x.id===nid);
-  if(n){n.date=val;save();}
-  const card=document.getElementById('note_'+nid);
-  if(card)card.outerHTML=renderNote(n);
-}
-
+let _saveTimers={};
 function updateNoteText(nid,val){
   const m=getMeeting();if(!m)return;
   const n=(m.notes||[]).find(x=>x.id===nid);
-  if(n){n.text=val;save();}
+  if(n){
+    n.text=val;
+    clearTimeout(_saveTimers[nid]);
+    _saveTimers[nid]=setTimeout(()=>{
+      api('notes',{method:'PUT',body:{id:nid,text:val}});
+    },500);
+  }
 }
 
-function deleteNote(nid){
+async function updateNoteDate(nid,val){
+  const m=getMeeting();if(!m)return;
+  const n=(m.notes||[]).find(x=>x.id===nid);
+  if(n){
+    n.date=val;
+    await api('notes',{method:'PUT',body:{id:nid,date:val}});
+    const card=document.getElementById('note_'+nid);
+    if(card)card.outerHTML=renderNote(n);
+  }
+}
+
+async function deleteNote(nid){
   if(!confirm('Delete this note?'))return;
   const m=getMeeting();if(!m)return;
+  await api('notes?id='+encodeURIComponent(nid),{method:'DELETE'});
   m.notes=(m.notes||[]).filter(n=>n.id!==nid);
   render();
 }
 
-function deleteDoc(did){
+async function deleteDoc(did){
   const m=getMeeting();if(!m)return;
+  await api('docs?id='+encodeURIComponent(did),{method:'DELETE'});
   m.docs=(m.docs||[]).filter(d=>d.id!==did);
   render();
 }
 
-function handleUpload(e){
+async function handleUpload(e){
   const m=getMeeting();if(!m)return;
   const files=Array.from(e.target.files);
-  let loaded=0;
-  files.forEach(file=>{
-    const reader=new FileReader();
-    reader.onload=ev=>{
-      m.docs=m.docs||[];
-      m.docs.push({id:gid(),type:'file',label:file.name,size:file.size,data:ev.target.result,added:new Date().toISOString()});
-      loaded++;
-      if(loaded===files.length)render();
-    };
-    reader.readAsDataURL(file);
-  });
+  for(const file of files){
+    const res=await fetch('/api/upload?filename='+encodeURIComponent(file.name),{
+      method:'POST',
+      headers:{'Authorization':'Bearer '+token},
+      body:file,
+    });
+    if(!res.ok){alert('Upload failed: '+file.name);continue;}
+    const blob=await res.json();
+    const doc={id:gid(),type:'file',label:file.name,url:blob.url,size:blob.size||file.size};
+    await api('docs',{method:'POST',body:{...doc,meeting_id:m.id}});
+    m.docs=m.docs||[];
+    m.docs.push({...doc,added_at:new Date().toISOString()});
+  }
   e.target.value='';
+  render();
 }
 
 function showModal(type){
@@ -299,7 +384,7 @@ function showModal(type){
     html=`<div class="modal" onclick="event.stopPropagation()">
       <div class="modal-header"><span class="modal-title">New meeting</span><button class="modal-close" onclick="closeModal()">×</button></div>
       <label class="fl">Meeting name *</label>
-      <input class="fi" id="m_name" placeholder="e.g. Board Meeting, Weekly Standup, Client Call — Acme">
+      <input class="fi" id="m_name" placeholder="e.g. Board Meeting, Weekly Standup, Client Call">
       <label class="fl">Cadence</label>
       <select class="fi" id="m_cadence">
         <option value="">None</option>
@@ -331,27 +416,37 @@ function showModal(type){
 function closeModal(){const el=document.getElementById('modalOverlay');if(el)el.remove();}
 function pickColor(c,idx){selColor=c;COLORS.forEach((_,i)=>{const d=document.getElementById('sw_'+i);if(d)d.style.borderColor=i===idx?'#333':'transparent';});}
 
-function createMeeting(){
+async function createMeeting(){
   const name=document.getElementById('m_name')?.value?.trim();if(!name)return;
   const cadence=document.getElementById('m_cadence')?.value||'';
   const att=(document.getElementById('m_att')?.value||'').split(',').map(a=>a.trim()).filter(Boolean);
-  const m={id:gid(),name,cadence,attendees:att,color:selColor,docs:[],notes:[],created:new Date().toISOString()};
-  state.meetings.push(m);state.active=m.id;
+  const m={id:gid(),name,cadence,attendees:att,color:selColor,docs:[],notes:[],created_at:new Date().toISOString()};
+  await api('meetings',{method:'POST',body:{id:m.id,name:m.name,cadence:m.cadence,attendees:m.attendees,color:m.color}});
+  meetings.push(m);activeId=m.id;
   closeModal();render();
 }
 
-function doAddLink(){
+async function doAddLink(){
   const raw=document.getElementById('m_url')?.value?.trim();if(!raw)return;
   const url=safeUrl(raw);if(!url){alert('Please enter a valid http or https URL.');return;}
   const label=document.getElementById('m_label')?.value?.trim()||raw;
   const m=getMeeting();if(!m)return;
+  const doc={id:gid(),type:'link',url,label};
+  await api('docs',{method:'POST',body:{...doc,meeting_id:m.id}});
   m.docs=m.docs||[];
-  m.docs.push({id:gid(),type:'link',url,label,added:new Date().toISOString()});
+  m.docs.push({...doc,added_at:new Date().toISOString()});
   closeModal();render();
 }
 
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
-load();render();
+
+// Boot
+if(token){
+  showApp();
+  initApp();
+} else {
+  showLogin();
+}
 
 if('serviceWorker' in navigator){
   window.addEventListener('load',()=>{
