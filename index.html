@@ -97,6 +97,43 @@ input,textarea,select{font-family:inherit}
 .fi:focus{border-color:var(--rose)}
 .modal-footer{display:flex;justify-content:flex-end;gap:9px;margin-top:6px}
 .swatch{width:24px;height:24px;border-radius:50%;cursor:pointer;border:2.5px solid transparent;flex-shrink:0}
+/* sidebar nav */
+.nav-section{padding:8px 8px 2px}
+.nav-item{width:100%;text-align:left;background:transparent;border:0.5px solid transparent;border-radius:8px;padding:10px 12px;cursor:pointer;display:flex;align-items:center;gap:10px;color:#fff;font-size:13px;font-weight:600;transition:all 0.1s}
+.nav-item:hover{background:rgba(255,255,255,0.08)}
+.nav-item.active{background:rgba(255,255,255,0.14);border-color:rgba(255,255,255,0.2)}
+.nav-item .ic{font-size:15px;line-height:1}
+.nav-item .nav-count{margin-left:auto;font-size:10px;font-weight:700;background:var(--rose);color:#fff;border-radius:10px;padding:1px 7px;min-width:18px;text-align:center}
+.list-label{font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:rgba(255,255,255,0.3);padding:12px 14px 4px}
+/* home / reminders boxes */
+.home-body{padding:28px 32px;max-width:1000px}
+.cat-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:6px}
+@media(max-width:760px){.cat-grid{grid-template-columns:1fr}}
+.cat-box{border:0.5px solid var(--gray4);border-radius:12px;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,0.04);display:flex;flex-direction:column;overflow:hidden}
+.cat-box-head{display:flex;align-items:center;gap:9px;padding:13px 15px;border-bottom:0.5px solid var(--gray4);background:var(--gray5)}
+.cat-box-dot{width:11px;height:11px;border-radius:50%;flex-shrink:0}
+.cat-box-name{font-size:13px;font-weight:700;color:var(--navy)}
+.cat-box-count{font-size:11px;color:var(--gray3);font-weight:600}
+.cat-box-body{padding:8px 10px;flex:1;display:flex;flex-direction:column;gap:2px;min-height:30px}
+.cat-empty{font-size:12px;color:var(--gray3);padding:8px 6px}
+.cat-box-add{display:flex;gap:6px;padding:8px 12px 13px;flex-wrap:wrap;border-top:0.5px solid var(--gray4)}
+.cat-add-input{flex:1;min-width:120px;border:0.5px solid var(--gray4);border-radius:7px;padding:7px 10px;font-size:13px;color:var(--gray);outline:none;transition:border-color .15s}
+.cat-add-input:focus{border-color:var(--rose)}
+.rem-date{border:0.5px solid var(--gray4);border-radius:7px;padding:6px 8px;font-size:12px;color:var(--gray);outline:none;background:#fff;transition:border-color .15s}
+.rem-date:focus{border-color:var(--rose)}
+.rem-row{display:flex;align-items:flex-start;gap:10px;padding:8px 8px;border-radius:8px;transition:background .12s}
+.rem-row:hover{background:var(--gray5)}
+.rem-check{width:19px;height:19px;border-radius:6px;border:1.8px solid var(--gray3);background:#fff;flex-shrink:0;margin-top:1px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .12s;padding:0}
+.rem-check:hover{border-color:var(--rose)}
+.rem-check.checked{background:var(--rose);border-color:var(--rose)}
+.rem-check.checked::after{content:'✓';color:#fff;font-size:12px;font-weight:700;line-height:1}
+.rem-main{flex:1;min-width:0}
+.rem-text{font-size:13.5px;color:var(--gray);line-height:1.45;word-break:break-word}
+.rem-row.done .rem-text{text-decoration:line-through;color:var(--gray3)}
+.rem-due{display:inline-block;font-size:10.5px;font-weight:600;color:var(--gray2);background:var(--gray5);border-radius:5px;padding:2px 7px;margin-top:5px}
+.rem-row:hover .rem-due{background:#eceae6}
+.rem-due.overdue{background:var(--rose-light);color:var(--rose-dark)}
+.rem-due.today{background:var(--navy-xlight);color:var(--navy)}
 .login-wrap{display:flex;align-items:center;justify-content:center;min-height:100vh;background:var(--navy)}
 .login-box{background:#fff;border-radius:14px;padding:36px 32px;width:340px;max-width:90%;text-align:center;box-shadow:0 12px 40px rgba(0,0,0,0.25)}
 .login-box h1{font-size:18px;color:var(--navy);margin-bottom:4px}
@@ -136,6 +173,12 @@ input,textarea,select{font-family:inherit}
       </div>
       <button class="btn-new" onclick="showModal('newMeeting')">+ New Meeting</button>
     </div>
+    <div class="nav-section">
+      <button class="nav-item" id="homeNav" onclick="goHome()">
+        <span class="ic">🏠</span><span>Home</span><span class="nav-count" id="homeCount" style="display:none"></span>
+      </button>
+    </div>
+    <div class="list-label">Meetings</div>
     <div class="meeting-list" id="meetingList"></div>
     <div class="sidebar-foot">dakjencreative.com</div>
   </div>
@@ -145,12 +188,16 @@ input,textarea,select{font-family:inherit}
 <script>
 const COLORS=['#C0737A','#1B2A4A','#4a7c6b','#8b6b1a','#6b3d8b','#2d5888'];
 let meetings=[];
+let categories=[];
+let reminders=[];
+let view='home';
 let activeId=null;
 let activeNoteId=null;
 let selColor=COLORS[0];
 let token=sessionStorage.getItem('vault_token')||'';
 
 function gid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,5);}
+function todayISO(){return new Date().toISOString().slice(0,10);}
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function safeUrl(u){try{const p=new URL(u,location.href);return/^https?:$/.test(p.protocol)?p.href:'';}catch(e){return'';}}
 function fmtFriendly(iso){if(!iso)return'';try{const d=new Date(iso+'T12:00:00');return d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'});}catch(e){return'';}}
@@ -189,8 +236,9 @@ async function doLogin(){
     if(!r.ok){document.getElementById('loginErr').textContent=data.error||'Invalid password';return;}
     token=data.token;
     sessionStorage.setItem('vault_token',token);
-    showApp();
-    await initApp();
+    // Boot the app cleanly from the stored token — same path as a manual refresh,
+    // so a transient first-call hiccup can't bounce you back to the login screen.
+    location.reload();
   }catch(e){document.getElementById('loginErr').textContent='Connection error';}
 }
 
@@ -200,6 +248,10 @@ async function initApp(){
   try{
     await api('setup',{method:'POST'});
     meetings=await api('meetings');
+    try{
+      categories=await api('categories');
+      reminders=await api('reminders');
+    }catch(e){console.error('reminders load failed',e);}
     render();
   }catch(e){console.error(e);}
 }
@@ -207,6 +259,11 @@ async function initApp(){
 function render(){renderSidebar();renderMain();}
 
 function renderSidebar(){
+  const homeNav=document.getElementById('homeNav');
+  if(homeNav)homeNav.classList.toggle('active',view==='home');
+  const hc=document.getElementById('homeCount');
+  if(hc){const open=reminders.filter(r=>!r.done).length;
+    if(open>0){hc.textContent=open;hc.style.display='';}else{hc.style.display='none';}}
   const el=document.getElementById('meetingList');
   if(!meetings.length){
     el.innerHTML='<div style="padding:22px 12px;text-align:center;font-size:12px;color:rgba(255,255,255,0.28)">No meetings yet.</div>';
@@ -214,7 +271,7 @@ function renderSidebar(){
   }
   el.innerHTML=meetings.map(m=>{
     const nc=(m.notes||[]).length, dc=(m.docs||[]).length;
-    return`<button class="meeting-item${m.id===activeId?' active':''}" onclick="selectMeeting('${esc(m.id)}')">
+    return`<button class="meeting-item${(view==='meeting'&&m.id===activeId)?' active':''}" onclick="selectMeeting('${esc(m.id)}')">
       <div class="meeting-dot" style="background:${m.color||'#C0737A'}"></div>
       <div style="flex:1;min-width:0">
         <div class="meeting-name">${esc(m.name)}</div>
@@ -225,6 +282,7 @@ function renderSidebar(){
 }
 
 function renderMain(){
+  if(view==='home'){renderHome();return;}
   const mp=document.getElementById('mainPane');
   const m=getMeeting();
   if(!m){
@@ -287,6 +345,129 @@ function renderMain(){
     </div>`;
 }
 
+function goHome(){view='home';render();}
+
+function dueInfo(iso){
+  if(!iso)return null;
+  const t=todayISO();
+  if(iso<t)return{cls:'overdue',label:'Overdue · '+fmtFriendly(iso)};
+  if(iso===t)return{cls:'today',label:'Today'};
+  const tm=new Date(t+'T12:00:00');tm.setDate(tm.getDate()+1);
+  if(iso===tm.toISOString().slice(0,10))return{cls:'',label:'Tomorrow'};
+  return{cls:'',label:fmtFriendly(iso)};
+}
+
+function sortReminders(arr){
+  return arr.slice().sort((a,b)=>{
+    if(!!a.done!==!!b.done)return a.done?1:-1;
+    const ad=a.deadline||'9999-99-99',bd=b.deadline||'9999-99-99';
+    return ad<bd?-1:ad>bd?1:0;
+  });
+}
+
+function renderReminder(r){
+  const di=dueInfo(r.deadline);
+  return`<div class="rem-row${r.done?' done':''}">
+    <button class="rem-check${r.done?' checked':''}" onclick="toggleReminder('${esc(r.id)}')" title="Toggle done"></button>
+    <div class="rem-main">
+      <div class="rem-text">${esc(r.text)}</div>
+      ${di?`<span class="rem-due ${di.cls}">${di.label}</span>`:''}
+    </div>
+    <button class="del-btn" onclick="deleteReminder('${esc(r.id)}')">×</button>
+  </div>`;
+}
+
+function renderCatBox(g){
+  const open=g.items.filter(r=>!r.done).length;
+  const doneN=g.items.length-open;
+  const rows=g.items.length?sortReminders(g.items).map(renderReminder).join('')
+    :`<div class="cat-empty">No tasks yet.</div>`;
+  return`<div class="cat-box">
+    <div class="cat-box-head">
+      <span class="cat-box-dot" style="background:${g.color}"></span>
+      <span class="cat-box-name">${esc(g.name)}</span>
+      <span class="cat-box-count">${open} open${doneN?` · ${doneN} done`:''}</span>
+      ${g.cat?`<button class="del-btn" style="margin-left:auto" onclick="deleteCategory('${esc(g.key)}')" title="Delete category">×</button>`:''}
+    </div>
+    <div class="cat-box-body">${rows}</div>
+    <div class="cat-box-add">
+      <input class="cat-add-input" id="add_text_${esc(g.key)}" placeholder="Add a task…" onkeydown="if(event.key==='Enter')addReminder('${esc(g.key)}')">
+      <input class="rem-date" type="date" id="add_date_${esc(g.key)}" title="Deadline (optional)">
+      <button class="btn rose sm" onclick="addReminder('${esc(g.key)}')">Add</button>
+    </div>
+  </div>`;
+}
+
+function renderHome(){
+  const mp=document.getElementById('mainPane');
+  const open=reminders.filter(r=>!r.done).length;
+  const done=reminders.length-open;
+  const groups=categories.map(c=>({
+    key:c.id,name:c.name,color:c.color||'#a0a0a0',cat:true,
+    items:reminders.filter(r=>r.category_id===c.id)
+  }));
+  groups.push({key:'uncat',name:'Uncategorized',color:'#a0a0a0',cat:false,
+    items:reminders.filter(r=>!r.category_id)});
+
+  mp.innerHTML=`
+    <div class="meeting-header">
+      <div class="meeting-title-row">
+        <span class="meeting-title">🏠 Home</span>
+        <div class="header-btns">
+          <button class="btn sm" onclick="showModal('newCategory')">+ New category</button>
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--gray3);margin-top:5px">${open} open · ${done} completed · saved to your vault.</div>
+    </div>
+    <div class="home-body">
+      <div class="section-row" style="margin-bottom:4px"><span class="section-title">Reminders</span></div>
+      <div class="section-note">A running checklist with deadlines, organized into category boxes. Check items off as you go.</div>
+      <div class="cat-grid">${groups.map(renderCatBox).join('')}</div>
+    </div>`;
+}
+
+async function addReminder(catKey){
+  const t=document.getElementById('add_text_'+catKey);
+  const text=t&&t.value.trim();if(!text)return;
+  const d=document.getElementById('add_date_'+catKey);
+  const deadline=(d&&d.value)||null;
+  const category_id=catKey==='uncat'?null:catKey;
+  const r={id:gid(),category_id,text,deadline,done:false,created_at:new Date().toISOString()};
+  reminders.unshift(r);
+  render();
+  setTimeout(()=>{const el=document.getElementById('add_text_'+catKey);if(el)el.focus();},40);
+  try{await api('reminders',{method:'POST',body:{id:r.id,category_id,text,deadline}});}catch(e){console.error(e);}
+}
+
+async function toggleReminder(id){
+  const r=reminders.find(x=>x.id===id);if(!r)return;
+  r.done=!r.done;
+  render();
+  try{await api('reminders',{method:'PUT',body:{id,done:r.done}});}catch(e){console.error(e);}
+}
+
+async function deleteReminder(id){
+  reminders=reminders.filter(r=>r.id!==id);
+  render();
+  try{await api('reminders?id='+encodeURIComponent(id),{method:'DELETE'});}catch(e){console.error(e);}
+}
+
+async function createCategory(){
+  const name=document.getElementById('c_name')?.value?.trim();if(!name)return;
+  const c={id:gid(),name,color:selColor,created_at:new Date().toISOString()};
+  categories.push(c);
+  closeModal();render();
+  try{await api('categories',{method:'POST',body:{id:c.id,name:c.name,color:c.color}});}catch(e){console.error(e);}
+}
+
+async function deleteCategory(id){
+  if(!confirm('Delete this category? Its tasks will move to Uncategorized.'))return;
+  categories=categories.filter(c=>c.id!==id);
+  reminders.forEach(r=>{if(r.category_id===id)r.category_id=null;});
+  render();
+  try{await api('categories?id='+encodeURIComponent(id),{method:'DELETE'});}catch(e){console.error(e);}
+}
+
 function renderDoc(d){
   const isFile=d.type==='file';
   const href=isFile?esc(safeUrl(d.url)||'#'):esc(safeUrl(d.url)||'#');
@@ -331,7 +512,7 @@ function renderNoteEditor(n){
 function selectNote(id){activeNoteId=id;render();}
 function closeNote(){activeNoteId=null;render();}
 
-function selectMeeting(id){activeId=id;activeNoteId=null;render();}
+function selectMeeting(id){view='meeting';activeId=id;activeNoteId=null;render();}
 
 async function deleteMeeting(id){
   if(!confirm('Delete this meeting and all its data?'))return;
@@ -445,6 +626,15 @@ function showModal(type){
       <label class="fl">Color</label>
       <div style="display:flex;gap:9px;margin-bottom:18px">${COLORS.map((c,i)=>`<div class="swatch" id="sw_${i}" style="background:${c};border-color:${i===0?'#333':'transparent'}" onclick="pickColor('${c}',${i})"></div>`).join('')}</div>
       <div class="modal-footer"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="createMeeting()">Create</button></div>
+    </div>`;
+  } else if(type==='newCategory'){
+    html=`<div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-header"><span class="modal-title">New category</span><button class="modal-close" onclick="closeModal()">×</button></div>
+      <label class="fl">Category name *</label>
+      <input class="fi" id="c_name" placeholder="e.g. Work, Personal, Errands, Follow-ups" onkeydown="if(event.key==='Enter')createCategory()">
+      <label class="fl">Color</label>
+      <div style="display:flex;gap:9px;margin-bottom:18px">${COLORS.map((c,i)=>`<div class="swatch" id="sw_${i}" style="background:${c};border-color:${i===0?'#333':'transparent'}" onclick="pickColor('${c}',${i})"></div>`).join('')}</div>
+      <div class="modal-footer"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="createCategory()">Create</button></div>
     </div>`;
   } else if(type==='addLink'){
     html=`<div class="modal" onclick="event.stopPropagation()">
