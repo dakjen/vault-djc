@@ -134,6 +134,13 @@ input,textarea,select{font-family:inherit}
 .rem-row:hover .rem-due{background:#eceae6}
 .rem-due.overdue{background:var(--rose-light);color:var(--rose-dark)}
 .rem-due.today{background:var(--navy-xlight);color:var(--navy)}
+.rem-grip{align-self:center;color:var(--gray3);font-size:15px;line-height:1;padding:0 3px;cursor:grab;opacity:.5;touch-action:none;user-select:none;-webkit-user-select:none;flex-shrink:0}
+.rem-row:hover .rem-grip{opacity:.85}
+.rem-grip:active{cursor:grabbing}
+.rem-row.dragging{opacity:.4}
+.cat-box.drag-over{box-shadow:0 0 0 2px var(--rose)}
+.cat-box.drag-over .cat-box-head{background:var(--rose-light)}
+.drag-ghost{position:fixed;z-index:200;pointer-events:none;transform:translate(-50%,-130%);background:var(--navy);color:#fff;font-size:12px;font-weight:600;padding:6px 11px;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,0.25);max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .login-wrap{display:flex;align-items:center;justify-content:center;min-height:100vh;background:var(--navy)}
 .login-box{background:#fff;border-radius:14px;padding:36px 32px;width:340px;max-width:90%;text-align:center;box-shadow:0 12px 40px rgba(0,0,0,0.25)}
 .login-box h1{font-size:18px;color:var(--navy);margin-bottom:4px}
@@ -367,12 +374,13 @@ function sortReminders(arr){
 
 function renderReminder(r){
   const di=dueInfo(r.deadline);
-  return`<div class="rem-row${r.done?' done':''}">
+  return`<div class="rem-row${r.done?' done':''}" data-id="${esc(r.id)}">
     <button class="rem-check${r.done?' checked':''}" onclick="toggleReminder('${esc(r.id)}')" title="Toggle done"></button>
     <div class="rem-main">
       <div class="rem-text">${esc(r.text)}</div>
       ${di?`<span class="rem-due ${di.cls}">${di.label}</span>`:''}
     </div>
+    <span class="rem-grip" title="Drag to another category" onpointerdown="gripDown(event,'${esc(r.id)}')">⠿</span>
     <button class="del-btn" onclick="deleteReminder('${esc(r.id)}')">×</button>
   </div>`;
 }
@@ -382,7 +390,7 @@ function renderCatBox(g){
   const doneN=g.items.length-open;
   const rows=g.items.length?sortReminders(g.items).map(renderReminder).join('')
     :`<div class="cat-empty">No tasks yet.</div>`;
-  return`<div class="cat-box">
+  return`<div class="cat-box" data-cat-key="${esc(g.key)}">
     <div class="cat-box-head">
       <span class="cat-box-dot" style="background:${g.color}"></span>
       <span class="cat-box-name">${esc(g.name)}</span>
@@ -421,7 +429,7 @@ function renderHome(){
     </div>
     <div class="home-body">
       <div class="section-row" style="margin-bottom:4px"><span class="section-title">Reminders</span></div>
-      <div class="section-note">A running checklist with deadlines, organized into category boxes. Check items off as you go.</div>
+      <div class="section-note">A running checklist with deadlines, organized into category boxes. Check items off — or drag the ⠿ handle to move a task to another category.</div>
       <div class="cat-grid">${groups.map(renderCatBox).join('')}</div>
     </div>`;
 }
@@ -450,6 +458,60 @@ async function deleteReminder(id){
   reminders=reminders.filter(r=>r.id!==id);
   render();
   try{await api('reminders?id='+encodeURIComponent(id),{method:'DELETE'});}catch(e){console.error(e);}
+}
+
+async function assignReminderCategory(id,catKey){
+  const r=reminders.find(x=>x.id===id);if(!r)return;
+  const cat=catKey==='uncat'?null:catKey;
+  if((r.category_id||null)===(cat||null))return;
+  r.category_id=cat;
+  render();
+  try{await api('reminders',{method:'PUT',body:{id,category_id:cat}});}catch(e){console.error(e);}
+}
+
+// --- Drag a task between category boxes (mouse + touch via pointer events) ---
+let _drag=null;
+function gripDown(e,id){
+  if(e.button!==undefined&&e.button>0)return;
+  e.preventDefault();e.stopPropagation();
+  const handle=e.currentTarget;
+  _drag={id,handle,row:handle.closest('.rem-row'),sx:e.clientX,sy:e.clientY,started:false,ghost:null,box:null};
+  try{handle.setPointerCapture(e.pointerId);}catch(_){}
+  handle.addEventListener('pointermove',gripMove);
+  handle.addEventListener('pointerup',gripUp);
+  handle.addEventListener('pointercancel',gripUp);
+}
+function gripMove(e){
+  if(!_drag)return;
+  if(!_drag.started){
+    if(Math.hypot(e.clientX-_drag.sx,e.clientY-_drag.sy)<5)return;
+    _drag.started=true;
+    if(_drag.row)_drag.row.classList.add('dragging');
+    const g=document.createElement('div');g.className='drag-ghost';
+    const tx=_drag.row&&_drag.row.querySelector('.rem-text');
+    g.textContent=tx?tx.textContent:'Task';
+    document.body.appendChild(g);_drag.ghost=g;
+  }
+  _drag.ghost.style.left=e.clientX+'px';_drag.ghost.style.top=e.clientY+'px';
+  const el=document.elementFromPoint(e.clientX,e.clientY);
+  const box=el?el.closest('.cat-box'):null;
+  if(box!==_drag.box){
+    if(_drag.box)_drag.box.classList.remove('drag-over');
+    _drag.box=box;
+    if(box)box.classList.add('drag-over');
+  }
+}
+function gripUp(e){
+  if(!_drag)return;
+  const d=_drag;_drag=null;
+  d.handle.removeEventListener('pointermove',gripMove);
+  d.handle.removeEventListener('pointerup',gripUp);
+  d.handle.removeEventListener('pointercancel',gripUp);
+  try{d.handle.releasePointerCapture(e.pointerId);}catch(_){}
+  if(d.ghost)d.ghost.remove();
+  if(d.row)d.row.classList.remove('dragging');
+  if(d.box)d.box.classList.remove('drag-over');
+  if(d.started&&d.box){const key=d.box.getAttribute('data-cat-key');if(key)assignReminderCategory(d.id,key);}
 }
 
 async function createCategory(){
