@@ -43,9 +43,11 @@ export async function initSchema() {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       color TEXT DEFAULT '#C0737A',
+      position INTEGER DEFAULT 0,
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `;
+  await sql`ALTER TABLE categories ADD COLUMN IF NOT EXISTS position INTEGER DEFAULT 0`;
   await sql`
     CREATE TABLE IF NOT EXISTS reminders (
       id TEXT PRIMARY KEY,

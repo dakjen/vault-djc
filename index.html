@@ -141,6 +141,14 @@ input,textarea,select{font-family:inherit}
 .cat-box.drag-over{box-shadow:0 0 0 2px var(--rose)}
 .cat-box.drag-over .cat-box-head{background:var(--rose-light)}
 .drag-ghost{position:fixed;z-index:200;pointer-events:none;transform:translate(-50%,-130%);background:var(--navy);color:#fff;font-size:12px;font-weight:600;padding:6px 11px;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,0.25);max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cat-collapse{background:none;border:none;color:var(--gray3);font-size:11px;line-height:1;cursor:pointer;padding:2px;flex-shrink:0;width:16px}
+.cat-collapse:hover{color:var(--navy)}
+.cat-grip{margin-left:auto;color:var(--gray3);font-size:14px;line-height:1;cursor:grab;opacity:.6;touch-action:none;user-select:none;-webkit-user-select:none;flex-shrink:0;padding:0 2px}
+.cat-grip:active{cursor:grabbing}
+.cat-box.dragging{opacity:.4}
+.cat-box.cat-reorder-over{box-shadow:0 0 0 2px var(--navy)}
+.cat-box.collapsed .cat-box-body,.cat-box.collapsed .cat-box-add{display:none}
+.cat-box.collapsed .cat-box-head{border-bottom:none}
 .login-wrap{display:flex;align-items:center;justify-content:center;min-height:100vh;background:var(--navy)}
 .login-box{background:#fff;border-radius:14px;padding:36px 32px;width:340px;max-width:90%;text-align:center;box-shadow:0 12px 40px rgba(0,0,0,0.25)}
 .login-box h1{font-size:18px;color:var(--navy);margin-bottom:4px}
@@ -390,12 +398,14 @@ function renderCatBox(g){
   const doneN=g.items.length-open;
   const rows=g.items.length?sortReminders(g.items).map(renderReminder).join('')
     :`<div class="cat-empty">No tasks yet.</div>`;
-  return`<div class="cat-box" data-cat-key="${esc(g.key)}">
+  return`<div class="cat-box${g.collapsed?' collapsed':''}" data-cat-key="${esc(g.key)}">
     <div class="cat-box-head">
+      <button class="cat-collapse" onclick="toggleCollapse('${esc(g.key)}')" title="${g.collapsed?'Expand':'Collapse'}">${g.collapsed?'▸':'▾'}</button>
       <span class="cat-box-dot" style="background:${g.color}"></span>
       <span class="cat-box-name">${esc(g.name)}</span>
       <span class="cat-box-count">${open} open${doneN?` · ${doneN} done`:''}</span>
-      ${g.cat?`<button class="del-btn" style="margin-left:auto" onclick="deleteCategory('${esc(g.key)}')" title="Delete category">×</button>`:''}
+      ${g.cat?`<span class="cat-grip" title="Drag to reorder categories" onpointerdown="catGripDown(event,'${esc(g.key)}')">⠿</span>`:''}
+      ${g.cat?`<button class="del-btn" onclick="deleteCategory('${esc(g.key)}')" title="Delete category">×</button>`:''}
     </div>
     <div class="cat-box-body">${rows}</div>
     <div class="cat-box-add">
@@ -410,11 +420,12 @@ function renderHome(){
   const mp=document.getElementById('mainPane');
   const open=reminders.filter(r=>!r.done).length;
   const done=reminders.length-open;
+  const cmap=getCollapsedMap();
   const groups=categories.map(c=>({
-    key:c.id,name:c.name,color:c.color||'#a0a0a0',cat:true,
+    key:c.id,name:c.name,color:c.color||'#a0a0a0',cat:true,collapsed:!!cmap[c.id],
     items:reminders.filter(r=>r.category_id===c.id)
   }));
-  groups.push({key:'uncat',name:'Uncategorized',color:'#a0a0a0',cat:false,
+  groups.push({key:'uncat',name:'Uncategorized',color:'#a0a0a0',cat:false,collapsed:!!cmap['uncat'],
     items:reminders.filter(r=>!r.category_id)});
 
   mp.innerHTML=`
@@ -429,7 +440,7 @@ function renderHome(){
     </div>
     <div class="home-body">
       <div class="section-row" style="margin-bottom:4px"><span class="section-title">Reminders</span></div>
-      <div class="section-note">A running checklist with deadlines, organized into category boxes. Check items off — or drag the ⠿ handle to move a task to another category.</div>
+      <div class="section-note">Drag a task's ⠿ handle to move it between categories, drag a category's ⠿ to reorder, and use ▾ to collapse a box.</div>
       <div class="cat-grid">${groups.map(renderCatBox).join('')}</div>
     </div>`;
 }
@@ -514,12 +525,59 @@ function gripUp(e){
   if(d.started&&d.box){const key=d.box.getAttribute('data-cat-key');if(key)assignReminderCategory(d.id,key);}
 }
 
+// --- Drag a category box to reorder ---
+let _catDrag=null;
+function catGripDown(e,id){
+  if(e.button!==undefined&&e.button>0)return;
+  e.preventDefault();e.stopPropagation();
+  const handle=e.currentTarget;
+  _catDrag={id,handle,box:handle.closest('.cat-box'),sx:e.clientX,sy:e.clientY,started:false,ghost:null,target:null};
+  try{handle.setPointerCapture(e.pointerId);}catch(_){}
+  handle.addEventListener('pointermove',catGripMove);
+  handle.addEventListener('pointerup',catGripUp);
+  handle.addEventListener('pointercancel',catGripUp);
+}
+function catGripMove(e){
+  if(!_catDrag)return;
+  const D=_catDrag;
+  if(!D.started){
+    if(Math.hypot(e.clientX-D.sx,e.clientY-D.sy)<5)return;
+    D.started=true;
+    if(D.box)D.box.classList.add('dragging');
+    const g=document.createElement('div');g.className='drag-ghost';
+    const nm=D.box&&D.box.querySelector('.cat-box-name');
+    g.textContent=nm?nm.textContent:'Category';
+    document.body.appendChild(g);D.ghost=g;
+  }
+  D.ghost.style.left=e.clientX+'px';D.ghost.style.top=e.clientY+'px';
+  const el=document.elementFromPoint(e.clientX,e.clientY);
+  let box=el?el.closest('.cat-box'):null;
+  if(box){const k=box.getAttribute('data-cat-key');if(k==='uncat'||k===D.id)box=null;}
+  if(box!==D.target){
+    if(D.target)D.target.classList.remove('cat-reorder-over');
+    D.target=box;
+    if(box)box.classList.add('cat-reorder-over');
+  }
+}
+function catGripUp(e){
+  if(!_catDrag)return;
+  const D=_catDrag;_catDrag=null;
+  D.handle.removeEventListener('pointermove',catGripMove);
+  D.handle.removeEventListener('pointerup',catGripUp);
+  D.handle.removeEventListener('pointercancel',catGripUp);
+  try{D.handle.releasePointerCapture(e.pointerId);}catch(_){}
+  if(D.ghost)D.ghost.remove();
+  if(D.box)D.box.classList.remove('dragging');
+  if(D.target)D.target.classList.remove('cat-reorder-over');
+  if(D.started&&D.target){const key=D.target.getAttribute('data-cat-key');if(key)reorderCategory(D.id,key);}
+}
+
 async function createCategory(){
   const name=document.getElementById('c_name')?.value?.trim();if(!name)return;
-  const c={id:gid(),name,color:selColor,created_at:new Date().toISOString()};
-  categories.push(c);
+  const c={id:gid(),name,color:selColor,position:0,created_at:new Date().toISOString()};
+  categories.unshift(c);
   closeModal();render();
-  try{await api('categories',{method:'POST',body:{id:c.id,name:c.name,color:c.color}});}catch(e){console.error(e);}
+  try{await api('categories',{method:'POST',body:{id:c.id,name:c.name,color:c.color,position:0}});await persistCategoryOrder();}catch(e){console.error(e);}
 }
 
 async function deleteCategory(id){
@@ -528,6 +586,29 @@ async function deleteCategory(id){
   reminders.forEach(r=>{if(r.category_id===id)r.category_id=null;});
   render();
   try{await api('categories?id='+encodeURIComponent(id),{method:'DELETE'});}catch(e){console.error(e);}
+}
+
+// Persist the current category display order as integer positions.
+async function persistCategoryOrder(){
+  try{await Promise.all(categories.map((c,i)=>{c.position=i;return api('categories',{method:'PUT',body:{id:c.id,position:i}});}));}catch(e){console.error(e);}
+}
+
+function getCollapsedMap(){try{return JSON.parse(localStorage.getItem('vault_collapsed')||'{}');}catch(e){return{};}}
+function toggleCollapse(key){
+  const m=getCollapsedMap();m[key]=!m[key];
+  try{localStorage.setItem('vault_collapsed',JSON.stringify(m));}catch(e){}
+  render();
+}
+
+async function reorderCategory(dragId,targetId){
+  const from=categories.findIndex(c=>c.id===dragId);
+  let to=categories.findIndex(c=>c.id===targetId);
+  if(from<0||to<0||from===to)return;
+  const [m]=categories.splice(from,1);
+  if(from<to)to--;
+  categories.splice(to,0,m);
+  render();
+  await persistCategoryOrder();
 }
 
 function renderDoc(d){
